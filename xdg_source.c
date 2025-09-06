@@ -70,6 +70,7 @@ struct XDGFrameRequest {
     gboolean session_created;
     gboolean sources_selected;
     gboolean stream_started;
+    int cursor_mode;
     
     // PipeWire stream data
     PipeWireStreamData *pw_data;
@@ -862,7 +863,9 @@ on_create_session_response_signal(GDBusProxy *proxy,
                 GVariantBuilder *select_options_builder = g_variant_builder_new(G_VARIANT_TYPE("a{sv}"));
                 g_variant_builder_add(select_options_builder, "{sv}", "types", g_variant_new_uint32(1)); // Monitor = 1
                 g_variant_builder_add(select_options_builder, "{sv}", "multiple", g_variant_new_boolean(FALSE));
-                g_variant_builder_add(select_options_builder, "{sv}", "cursor_mode", g_variant_new_uint32(2)); // Request cursor as metadata
+                if (frame_request->cursor_mode > 0) {
+                    g_variant_builder_add(select_options_builder, "{sv}", "cursor_mode", g_variant_new_uint32(frame_request->cursor_mode));
+                }
                 
                 GVariant *select_params = g_variant_new("(oa{sv})", frame_request->session_handle, select_options_builder);
                 g_variant_builder_unref(select_options_builder);
@@ -982,7 +985,7 @@ static gpointer main_loop_thread_func(gpointer data) {
     return NULL;
 }
 
-XDGFrameRequest* init_screencast_session() {
+XDGFrameRequest* init_screencast_session(int cursor_mode) {
     if (g_screencast_session && g_screencast_initialized) {
         // Return existing session
         return g_screencast_session;
@@ -1005,6 +1008,7 @@ XDGFrameRequest* init_screencast_session() {
     frame_request->session_created = FALSE;
     frame_request->sources_selected = FALSE;
     frame_request->stream_started = FALSE;
+    frame_request->cursor_mode = cursor_mode;
 
     // Create a D-Bus proxy for the screencast portal
     proxy = g_dbus_proxy_new_for_bus_sync(G_BUS_TYPE_SESSION,
@@ -1089,11 +1093,8 @@ XDGFrameRequest* init_screencast_session() {
 XDGFrameRequest* get_xdg_root_window_frame_sync() {
     // Initialize screencast session if not already done
     if (!g_screencast_initialized) {
-        XDGFrameRequest *session = init_screencast_session();
-        if (!session) {
-            g_printerr("Failed to initialize screencast session\n");
-            return NULL;
-        }
+        g_printerr("ScreenCast session not initialized. Call init_screencast_session() first.\n");
+        return NULL;
     }
 
     if (!g_screencast_session || !g_screencast_session->stream_started) {

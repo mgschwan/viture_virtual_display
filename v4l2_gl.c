@@ -802,6 +802,8 @@ int main(int argc, char **argv) {
     kgflags_bool("test-pattern", false, "Display test pattern instead of V4L2.", false, &display_test_pattern);
     bool use_xdg_mode = false;
     kgflags_bool("xdg", false, "Use XDG portal for screen capture instead of V4L2.", false, &use_xdg_mode);
+    int cursor_mode = 0;
+    kgflags_int("cursor-mode", 0, "Set cursor mode for XDG (1=hidden, 2=embedded, 4=direct).", false, &cursor_mode);
 
     double plane_distance_double = (double)g_plane_orbit_distance;
     kgflags_double("plane-distance", plane_distance_double, "Set plane orbit distance (float).", false, &plane_distance_double);
@@ -902,7 +904,7 @@ if (use_viture_imu) {
         init_v4l2(); 
     } else if (current_capture_mode == MODE_XDG) { // MODE_XDG
         printf("V4L2_GL: Initializing XDG screen capture session...\n");
-        if (!init_screencast_session()) {
+        if (!init_screencast_session(cursor_mode)) {
             fprintf(stderr, "V4L2_GL: Failed to initialize XDG screencast session. Exiting.\n");
             exit(EXIT_FAILURE);
         }
