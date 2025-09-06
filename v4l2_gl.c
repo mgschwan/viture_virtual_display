@@ -8,6 +8,7 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <pthread.h>
+#include <math.h>
 
 #include <linux/videodev2.h>
 
@@ -27,6 +28,10 @@
 
 #include "utility.h"
 #include "xdg_source.h" // For XDG screen capture
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 
 // --- Capture Mode ---
@@ -92,6 +97,11 @@ static bool fullscreen_mode = false;
 static bool display_test_pattern = false;                
 static float g_plane_orbit_distance = 1.0f;         
 static float g_plane_scale = 1.0f;                  
+
+// --- Curved Display Configuration ---
+static bool g_curved_display = false;
+static float g_curve_angle = 60.0f; // Arc angle in degrees
+
 
 // --- V4L2 Device Path ---
 static const char *v4l2_device_path_str = "/dev/video0"; // Default value
@@ -463,7 +473,11 @@ void display() {
         glRotatef(angle, 0.0f, 1.0f, 0.0f); 
     }
 
-    glTranslatef(0.0f, 0.0f, -g_plane_orbit_distance);
+    // For flat display, translate the plane away from the camera.
+    // For curved display, the geometry is generated at the correct distance.
+    if (!g_curved_display) {
+        glTranslatef(0.0f, 0.0f, -g_plane_orbit_distance);
+    }
     glScalef(g_plane_scale, g_plane_scale, 1.0f);
 
     bool generate_texture = false;
@@ -492,14 +506,49 @@ void display() {
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, actual_frame_width, actual_frame_height, GL_RGB, GL_UNSIGNED_BYTE, rgb_frames[front_buffer_idx]);
     }
 
-    if ( (use_viture_imu && initial_offsets_set) || current_capture_mode == MODE_XDG || display_test_pattern) { // Draw quad if IMU is set, in XDG mode, or displaying test pattern
+    if ( !use_viture_imu || initial_offsets_set ) { 
         float aspect_ratio = (float)actual_frame_width / (float)actual_frame_height;
-        glBegin(GL_QUADS);
-            glTexCoord2f(0.0f, 1.0f); glVertex3f(-aspect_ratio, -1.0f, 0.0f);
-            glTexCoord2f(1.0f, 1.0f); glVertex3f( aspect_ratio, -1.0f, 0.0f);
-            glTexCoord2f(1.0f, 0.0f); glVertex3f( aspect_ratio,  1.0f, 0.0f);
-            glTexCoord2f(0.0f, 0.0f); glVertex3f(-aspect_ratio,  1.0f, 0.0f);
-        glEnd();    
+
+        if (g_curved_display) {
+            const int segments = 50;
+            float radius = g_plane_orbit_distance;
+
+            // Convert total arc angle to radians and find start/end angles
+            float total_angle_rad = g_curve_angle * M_PI / 180.0f;
+            float start_rad = -total_angle_rad / 2.0f;
+            float angle_range_rad = total_angle_rad;
+
+            // Arc length determines the width of the virtual screen
+            float arc_length = fabsf(radius * angle_range_rad);
+            float height = arc_length / aspect_ratio;
+
+            glBegin(GL_QUAD_STRIP);
+            for (int i = 0; i <= segments; ++i) {
+                float ratio = (float)i / segments;
+                float angle = start_rad + ratio * angle_range_rad;
+
+                // Calculate vertex positions for a cylinder centered at the origin, concave towards +Z
+                float x = radius * sin(angle);
+                float z = -radius * cos(angle); // Negative cos places it behind the origin
+
+                // Top vertex
+                glTexCoord2f(ratio, 0.0f);
+                glVertex3f(x, height / 2.0f, z);
+
+                // Bottom vertex
+                glTexCoord2f(ratio, 1.0f);
+                glVertex3f(x, -height / 2.0f, z);
+            }
+            glEnd();
+        } else {
+            // Original flat plane rendering
+            glBegin(GL_QUADS);
+                glTexCoord2f(0.0f, 1.0f); glVertex3f(-aspect_ratio, -1.0f, 0.0f);
+                glTexCoord2f(1.0f, 1.0f); glVertex3f( aspect_ratio, -1.0f, 0.0f);
+                glTexCoord2f(1.0f, 0.0f); glVertex3f( aspect_ratio,  1.0f, 0.0f);
+                glTexCoord2f(0.0f, 0.0f); glVertex3f(-aspect_ratio,  1.0f, 0.0f);
+            glEnd();
+        }
     }
     glutSwapBuffers();
 }
@@ -760,6 +809,11 @@ int main(int argc, char **argv) {
     double plane_scale_double = (double)g_plane_scale;
     kgflags_double("plane-scale", plane_scale_double, "Set plane scale (float, must be > 0).", false, &plane_scale_double);
 
+    // Flags for curved display
+    kgflags_bool("curved-display", false, "Render on a curved surface.", false, &g_curved_display);
+    double curve_angle_double = (double)g_curve_angle;
+    kgflags_double("curve-angle", curve_angle_double, "Set the arc angle of the curved surface in degrees.", false, &curve_angle_double);
+
     kgflags_set_prefix("--"); // Flags will be e.g. --fullscreen
     kgflags_set_custom_description("Usage: v4l2_gl [FLAGS]\n\nOptions:");
 
@@ -771,6 +825,7 @@ int main(int argc, char **argv) {
 
     g_plane_orbit_distance = (float)plane_distance_double;
     g_plane_scale = (float)plane_scale_double;
+    g_curve_angle = (float)curve_angle_double;
 
     // Validate plane_scale after parsing
     if (g_plane_scale <= 0.0f) {
@@ -786,6 +841,13 @@ int main(int argc, char **argv) {
     printf("  XDG Mode: %s\n", use_xdg_mode ? "enabled" : "disabled");
     printf("  Plane Orbit Distance: %f\n", g_plane_orbit_distance);
     printf("  Plane Scale: %f\n", g_plane_scale);
+    if (g_curved_display) {
+        printf("  Curved Display: enabled\n");
+        printf("    Radius (from plane-distance): %f\n", g_plane_orbit_distance);
+        printf("    Arc Angle: %f\n", g_curve_angle);
+    } else {
+        printf("  Curved Display: disabled\n");
+    }
     printf("\n");
 
     if (use_xdg_mode) {
