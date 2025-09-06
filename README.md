@@ -157,6 +157,24 @@ The application supports the following command-line options:
     Default: `1.0` (original size). Values greater than 1.0 enlarge the plane, less than 1.0 shrink it. Values <= 0.0 are reset to 1.0.
     Example: `./v4l2_gl --plane-scale 1.5`
 
+-   **`--curved-display`**:
+    Renders the video stream on a curved, cylindrical surface instead of a flat plane. The radius of the curve is controlled by `--plane-distance`.
+    Default: `false` (disabled).
+    Example: `./v4l2_gl --curved-display`
+
+-   **`--curve-angle <angle>`**:
+    Sets the total arc angle of the curved display in degrees. Only effective when `--curved-display` is enabled.
+    Default: `60.0`.
+    Example: `./v4l2_gl --curved-display --curve-angle 90`
+
+-   **`--cursor-mode <mode>`**:
+    Sets the cursor rendering mode when using `--xdg` for screen capture.
+    - `1`: Hidden
+    - `2`: Embedded (cursor is part of the video stream)
+    - `4`: Direct draw (cursor is rendered separately)
+    If not specified, the portal's default behavior is used.
+    Example: `./v4l2_gl --xdg --cursor-mode 2`
+
 ### Combined Example
 
 You can combine these options.
@@ -181,6 +199,17 @@ This command would:
 - Enable Viture IMU.
 - Run in fullscreen.
 
+Using the curved display:
+```bash
+./v4l2_gl --xdg --viture --curved-display --plane-distance 1.5 --curve-angle 80
+```
+This command would:
+- Use the XDG portal for screen capture.
+- Enable Viture IMU.
+- Render the display on a curved surface.
+- Set the radius of the curve to 1.5 units.
+- Set the arc of the curve to 80 degrees.
+
 
 ## Demo
 
@@ -204,4 +233,4 @@ This command would:
  - [ ] Improve performance of the hdmi texture conversion
  - [ ] Support MJPEG format to increase framerate of USB capture cards
  - [x] Add quick gesture to recenter the rotation
- - [ ] Add curved screen option
+ - [x] Add curved screen option
