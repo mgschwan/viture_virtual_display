@@ -96,8 +96,6 @@ static void on_stream_process(void *userdata)
     struct spa_meta_cursor *mcs;
     struct spa_meta_bitmap *mb_cursor = NULL;
 
-    //g_print ("Processing PipeWire stream frame...\n");
-
     frame_count++;
 
     if ((b = pw_stream_dequeue_buffer(pw_data->stream)) == NULL) {
@@ -164,8 +162,6 @@ static void on_stream_process(void *userdata)
     }
 #endif
 
-    /*
-    // No tested yet because we don't get the meta data ( Ubuntu 22.04 bug ? )
     if ((mcs = spa_buffer_find_meta_data(buf, SPA_META_Cursor, sizeof(*mcs))) ) {
         if ( spa_meta_cursor_is_valid(mcs) )
         {
@@ -178,27 +174,35 @@ static void on_stream_process(void *userdata)
             cursor_w = mb_cursor->size.width;
             cursor_h = mb_cursor->size.height;
 
-            // copy the cursor bitmap into the texture 
-            src = SPA_PTROFF(mb_cursor, mb_cursor->offset, uint8_t);
-            int ostride = mb_cursor->stride;
+            // copy the cursor bitmap into the texture with alpha blending
+            uint8_t *cursor_src = SPA_PTROFF(mb_cursor, mb_cursor->offset, uint8_t);
+            int cursor_stride = mb_cursor->stride;
 
-            int cursor_offset_in_frame = (cursor_w * 3 * cursor_y + cursor_x * 3);
-            dst = pw_data->frame_data + cursor_offset_in_frame;
-            int dst_skip = (pw_data->frame_width - cursor_w) * 3;
+            // Clamp cursor position to be within frame boundaries
+            if (cursor_x < 0) cursor_x = 0;
+            if (cursor_y < 0) cursor_y = 0;
+            if (cursor_x + cursor_w > pw_data->frame_width) cursor_w = pw_data->frame_width - cursor_x;
+            if (cursor_y + cursor_h > pw_data->frame_height) cursor_h = pw_data->frame_height - cursor_y;
 
-            if (frame_size > cursor_offset_in_frame + cursor_h * ostride)
-            {
-                for (__uint8_t i = 0; i < mb_cursor->size.height; i++)
-                {
-                    memcpy(dst, src, ostride);
-                    dst += dst_skip;
-                    src += ostride;
+            uint8_t *frame_dst_start = pw_data->frame_data + (cursor_y * pw_data->frame_width * 3) + (cursor_x * 3);
+            int frame_stride = pw_data->frame_width * 3;
+
+            for (int i = 0; i < cursor_h; i++) {
+                for (int j = 0; j < cursor_w; j++) {
+                    uint8_t *s = cursor_src + i * cursor_stride + j * 4; // BGRA
+                    uint8_t *d = frame_dst_start + i * frame_stride + j * 3; // RGB
+
+                    float alpha = s[3] / 255.0f;
+                    if (alpha > 0.01) { // Only blend if not fully transparent
+                        //g_print("Blending pixel at %d,%d with alpha %f\n", j, i, alpha);
+                        d[0] = (uint8_t)(s[2] * alpha + d[0] * (1.0f - alpha)); // R
+                        d[1] = (uint8_t)(s[1] * alpha + d[1] * (1.0f - alpha)); // G
+                        d[2] = (uint8_t)(s[0] * alpha + d[2] * (1.0f - alpha)); // B
+                    }
                 }
             }
-        }
-    }
-    */
-
+        } 
+    } 
     pw_data->frame_ready = TRUE;
     pw_data->parent_request->success = TRUE;
     pw_data->parent_request->stream_started = TRUE;
@@ -207,6 +211,65 @@ static void on_stream_process(void *userdata)
     //g_print("PipeWire frame processed: %dx%d\n", pw_data->frame_width, pw_data->frame_height);
 
     pw_stream_queue_buffer(pw_data->stream, b);
+}
+
+static void
+on_stream_param_changed(void *userdata, uint32_t id, const struct spa_pod *param)
+{
+    PipeWireStreamData *pw_data = userdata;
+    struct spa_video_info format;
+
+    if (param == NULL || id != SPA_PARAM_Format)
+        return;
+
+    if (spa_format_parse(param, &format.media_type, &format.media_subtype) < 0)
+        return;
+
+    if (format.media_type != SPA_MEDIA_TYPE_video || format.media_subtype != SPA_MEDIA_SUBTYPE_raw)
+        return;
+
+    if (spa_format_video_raw_parse(param, &format.info.raw) < 0)
+        return;
+
+    g_print("PipeWire stream format changed: %dx%d\n", format.info.raw.size.width, format.info.raw.size.height);
+    pw_data->frame_width = format.info.raw.size.width;
+    pw_data->frame_height = format.info.raw.size.height;
+    pw_data->frame_stride = pw_data->frame_width * 4; // Assume BGRA for now
+
+    uint8_t buffer[1024];
+    struct spa_pod_builder b = SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
+    const struct spa_pod *params[4];
+    int32_t size = pw_data->frame_stride * pw_data->frame_height;
+
+    params[0] = spa_pod_builder_add_object(&b,
+            SPA_TYPE_OBJECT_ParamBuffers, SPA_PARAM_Buffers,
+            SPA_PARAM_BUFFERS_buffers, SPA_POD_CHOICE_RANGE_Int(8, 2, 64),
+            SPA_PARAM_BUFFERS_blocks,  SPA_POD_Int(1),
+            SPA_PARAM_BUFFERS_size,    SPA_POD_Int(size),
+            SPA_PARAM_BUFFERS_stride,  SPA_POD_Int(pw_data->frame_stride),
+            SPA_PARAM_BUFFERS_dataType, SPA_POD_CHOICE_FLAGS_Int((1<<SPA_DATA_MemPtr)));
+
+    params[1] = spa_pod_builder_add_object(&b,
+            SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta,
+            SPA_PARAM_META_type, SPA_POD_Id(SPA_META_Header),
+            SPA_PARAM_META_size, SPA_POD_Int(sizeof(struct spa_meta_header)));
+
+    params[2] = spa_pod_builder_add_object(&b,
+            SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta,
+            SPA_PARAM_META_type, SPA_POD_Id(SPA_META_VideoCrop),
+            SPA_PARAM_META_size, SPA_POD_Int(sizeof(struct spa_meta_region)));
+
+    #define CURSOR_META_SIZE(w,h)   (sizeof(struct spa_meta_cursor) + \
+                                 sizeof(struct spa_meta_bitmap) + w * h * 4)
+    params[3] = spa_pod_builder_add_object(&b,
+            SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta,
+            SPA_PARAM_META_type, SPA_POD_Id(SPA_META_Cursor),
+            SPA_PARAM_META_size, SPA_POD_CHOICE_RANGE_Int(
+                            CURSOR_META_SIZE(64,64),
+                            CURSOR_META_SIZE(1,1),
+                            CURSOR_META_SIZE(256,256)));
+
+    pw_stream_update_params(pw_data->stream, params, 4);
 }
 
 static void on_stream_state_changed(void *userdata, enum pw_stream_state old, enum pw_stream_state state, const char *error)
@@ -228,6 +291,7 @@ static const struct pw_stream_events stream_events = {
     PW_VERSION_STREAM_EVENTS,
     .process = on_stream_process,
     .state_changed = on_stream_state_changed,
+    .param_changed = on_stream_param_changed,
 };
 
 
@@ -311,7 +375,7 @@ process_pipewire_stream(XDGFrameRequest *frame_request)
     // Set up stream parameters
     uint8_t buffer[1024];
     struct spa_pod_builder b = SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
-    const struct spa_pod *params[2];
+    const struct spa_pod *params[1];
     
     params[0] = spa_pod_builder_add_object(&b,
         SPA_TYPE_OBJECT_Format, SPA_PARAM_EnumFormat,
@@ -330,25 +394,14 @@ process_pipewire_stream(XDGFrameRequest *frame_request)
             &SPA_FRACTION(0, 1),
             &SPA_FRACTION(1000, 1)));
 
-    #define CURSOR_META_SIZE(w,h)   (sizeof(struct spa_meta_cursor) + \
-                                 sizeof(struct spa_meta_bitmap) + w * h * 4)
-    /* cursor information */
-    params[1] = spa_pod_builder_add_object(&b,
-                SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta,
-                SPA_PARAM_META_type, SPA_POD_Id(SPA_META_Cursor),
-                SPA_PARAM_META_size, SPA_POD_CHOICE_RANGE_Int(
-                                CURSOR_META_SIZE(64,64),
-                                CURSOR_META_SIZE(1,1),
-                                CURSOR_META_SIZE(256,256)));
-
-
     // Connect stream to the node
     if (pw_stream_connect(pw_data->stream,
                          PW_DIRECTION_INPUT,
                          node_id,
                          PW_STREAM_FLAG_AUTOCONNECT |
+                         PW_STREAM_FLAG_INACTIVE |
                          PW_STREAM_FLAG_MAP_BUFFERS,
-                         params, 2) < 0) {
+                         params, 1) < 0) {
         g_printerr("Failed to connect PipeWire stream to node %u\n", node_id);
         goto cleanup;
     }
@@ -357,31 +410,6 @@ process_pipewire_stream(XDGFrameRequest *frame_request)
 
 
     pw_main_loop_run(pw_data->loop); // Start the PipeWire main loop
-
-    // Start PipeWire loop in a separate thread
-    // if (pthread_create(&pw_data->pipewire_thread, NULL, pipewire_loop_thread_func, pw_data) != 0) {
-    //     g_printerr("Failed to create PipeWire thread\n");
-    //     goto cleanup;
-    // }
-
-    // Wait for the stream to be ready
-    // g_print("Waiting for the PipeWire stream to start...\n");
-    // gboolean stream_is_ready = FALSE;
-    // for (int i = 0; i < 100; i++) { // Wait up to 10 seconds
-    //     if (pw_data->stream_ready) {
-    //         stream_is_ready = TRUE;
-    //         break;
-    //     }
-    //     g_usleep(100000); // 100ms
-    // }
-
-    // if (stream_is_ready) {
-    //     g_print("PipeWire stream is active.\n");
-    //     frame_request->success = TRUE;
-    // } else {
-    //     g_printerr("PipeWire stream failed to start in time.\n");
-    //     frame_request->success = FALSE;
-    // }
 
 cleanup:
     // Note: We keep the PipeWire connection alive for the session
@@ -834,6 +862,7 @@ on_create_session_response_signal(GDBusProxy *proxy,
                 GVariantBuilder *select_options_builder = g_variant_builder_new(G_VARIANT_TYPE("a{sv}"));
                 g_variant_builder_add(select_options_builder, "{sv}", "types", g_variant_new_uint32(1)); // Monitor = 1
                 g_variant_builder_add(select_options_builder, "{sv}", "multiple", g_variant_new_boolean(FALSE));
+                g_variant_builder_add(select_options_builder, "{sv}", "cursor_mode", g_variant_new_uint32(2)); // Request cursor as metadata
                 
                 GVariant *select_params = g_variant_new("(oa{sv})", frame_request->session_handle, select_options_builder);
                 g_variant_builder_unref(select_options_builder);
@@ -1001,6 +1030,8 @@ XDGFrameRequest* init_screencast_session() {
     snprintf(handle_token_string, sizeof(handle_token_string), "viture_screencast_%u", g_random_int());
     g_variant_builder_add(options_builder, "{sv}", "handle_token", g_variant_new_string(handle_token_string));
     g_variant_builder_add(options_builder, "{sv}", "session_handle_token", g_variant_new_string(handle_token_string));
+    
+
 
     GVariant *params = g_variant_new("(a{sv})", options_builder);
     g_variant_builder_unref(options_builder);
