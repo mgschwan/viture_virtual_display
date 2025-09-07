@@ -49,8 +49,9 @@ static enum CaptureMode current_capture_mode = MODE_V4L2;
 #define BUFFER_COUNT     4
 
 #define SENSITIVITY_ANGLE 2.0f // Sensitivity for head gesture tracking in degrees
-#define HEAD_SHAKE_RESET_TIME 3000 
-#define HEAD_SHAKE_RESET_COUNT 4 // Number of shakes to reset the yaw angle
+#define HEAD_SHAKE_RESET_TIME 500 
+#define HEAD_SHAKE_SEQUENCE_RESET_TIME 3000
+#define HEAD_SHAKE_RESET_COUNT 3 // Number of shakes to reset the yaw angle
 
 // --- Global variables for V4L2 ---
 static enum v4l2_buf_type active_buffer_type;
@@ -147,15 +148,19 @@ static void track_reset_head_gesture(float roll, float pitch, float yaw, uint32_
     static float last_yaw = 0.0f;
     static int shake_direction = 0; // Direction of the last shake
     static clock_t last_reset_time = 0;
+    static clock_t last_shake_time = 0;
     static int shake_count = 0;
 
     clock_t current_time = clock() * 1000 / CLOCKS_PER_SEC; // Convert to milliseconds
 
     yaw += 360.0f; // Ensure yaw is positive for easier calculations
-    if (current_time - last_reset_time > HEAD_SHAKE_RESET_TIME) { 
+    if (current_time - last_reset_time > HEAD_SHAKE_SEQUENCE_RESET_TIME ||
+        current_time - last_shake_time > HEAD_SHAKE_RESET_TIME) { 
+        printf ("Resetting head gesture tracking due to timeout. Yaw reset to %f\n", yaw);
         shake_count = 0;
         shake_direction = 0; // Reset shake direction
         last_reset_time = current_time;
+        last_shake_time = current_time;
     }
 
     if ( shake_count == 0 ) {
@@ -164,32 +169,39 @@ static void track_reset_head_gesture(float roll, float pitch, float yaw, uint32_
 
     float yaw_diff = yaw - last_yaw;
 
-    if (fabs(yaw_diff) > SENSITIVITY_ANGLE) {
-        if ( shake_direction == 0 ) {
-            if (yaw_diff > 0) {
-                shake_direction = 1; // Positive direction
-            } else {
-                shake_direction = -1; // Negative direction
+    bool is_shake = false;
+    switch ( shake_direction ) {
+        case 0: // No direction yet
+            if (fabs(yaw_diff) > SENSITIVITY_ANGLE) {
+                is_shake = true;
             }
-        } else {
-            bool tmp = false;
-            if (yaw_diff > 0 && shake_direction == 1)
-            {
-                tmp = true;
-                shake_direction = -1;
-                last_yaw = yaw;
+            break;
+        case 1: // Last shake was positive
+            if (yaw_diff < -SENSITIVITY_ANGLE) {
+                is_shake = true;
             }
-            else if (yaw_diff < 0 && shake_direction == -1)
-            {
-                tmp = true; 
-                shake_direction = 1; // Reset to positive direction
-                last_yaw = yaw;
+            break;
+        case -1: // Last shake was negative
+            if (yaw_diff > SENSITIVITY_ANGLE) {
+                is_shake = true;
             }
+            break;
+    }
+        
+    average_yaw = (average_yaw * 0.9f) + (yaw * 0.1f); // Update the average with a simple low-pass filter
 
-            if (tmp) {
-                shake_count++;
-                printf("Head shake detected! Count: %d average yaw %f, ts: %ld\n", shake_count, average_yaw, current_time);
-            }
+    if (is_shake) {
+        printf("Head shake detected! Count: %d average yaw %f, last_yaw: %f, current_yaw: %f, ts: %ld\n", shake_count, average_yaw, last_yaw, yaw, current_time);
+
+        last_shake_time = current_time;
+        last_yaw = average_yaw;
+        shake_count++;
+
+
+        if (yaw_diff > 0) {
+            shake_direction = 1; 
+        } else {
+            shake_direction = -1; 
         }
     }
 
@@ -200,11 +212,10 @@ static void track_reset_head_gesture(float roll, float pitch, float yaw, uint32_
         shake_direction = 0; // Reset the shake direction
         initial_offsets_set = false; // Reset the initial offsets
 
+        last_shake_time = current_time;
         last_reset_time = current_time; // Update the last reset time
         skip_initial_imu_frames = 30;
     } 
-    
-    average_yaw = (average_yaw * 0.99f) + (yaw * 0.01f); // Update the average with a simple low-pass filter
     
 }
 
@@ -478,7 +489,7 @@ void display() {
     if (!g_curved_display) {
         glTranslatef(0.0f, 0.0f, -g_plane_orbit_distance);
     }
-    glScalef(g_plane_scale, g_plane_scale, 1.0f);
+    glScalef(g_plane_scale, g_plane_scale, g_plane_scale);
 
     bool generate_texture = false;
     pthread_mutex_lock(&frame_mutex);
@@ -557,7 +568,7 @@ void reshape(int w, int h) {
     glViewport(0, 0, w, h);
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    gluPerspective(45.0, (double)w / (double)h, 1.0, 100.0);
+    gluPerspective(45.0, (double)w / (double)h, 1.0, 10000.0);
 }
 
 void capture_and_update() {
