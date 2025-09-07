@@ -53,6 +53,8 @@ static enum CaptureMode current_capture_mode = MODE_V4L2;
 #define HEAD_SHAKE_SEQUENCE_RESET_TIME 3000
 #define HEAD_SHAKE_RESET_COUNT 3 // Number of shakes to reset the yaw angle
 
+#define PLANE_TO_CYLINDER_CONVERSION_FACTOR 8.0f
+
 // --- Global variables for V4L2 ---
 static enum v4l2_buf_type active_buffer_type;
 static __u32 active_pixel_format;
@@ -101,7 +103,7 @@ static float g_plane_scale = 1.0f;
 
 // --- Curved Display Configuration ---
 static bool g_curved_display = false;
-static float g_curve_angle = 60.0f; // Arc angle in degrees
+static float g_curve_angle = 90.0f; // Arc angle in degrees
 
 
 // --- V4L2 Device Path ---
@@ -488,8 +490,12 @@ void display() {
     // For curved display, the geometry is generated at the correct distance.
     if (!g_curved_display) {
         glTranslatef(0.0f, 0.0f, -g_plane_orbit_distance);
+        glScalef(g_plane_scale, g_plane_scale, g_plane_scale);
+    } else {
+        glTranslatef(0.0f, 0.0f, -g_plane_orbit_distance + g_plane_scale * PLANE_TO_CYLINDER_CONVERSION_FACTOR * 0.2f);
+
     }
-    glScalef(g_plane_scale, g_plane_scale, g_plane_scale);
+    
 
     bool generate_texture = false;
     pthread_mutex_lock(&frame_mutex);
@@ -522,7 +528,7 @@ void display() {
 
         if (g_curved_display) {
             const int segments = 50;
-            float radius = g_plane_orbit_distance;
+            float radius = g_plane_scale * PLANE_TO_CYLINDER_CONVERSION_FACTOR;
 
             // Convert total arc angle to radians and find start/end angles
             float total_angle_rad = g_curve_angle * M_PI / 180.0f;
