@@ -29,7 +29,7 @@ If you are using a Raspberry Pi or other device without HDMI-in you need a USB c
 
 ### Testing without HDMI
 
-For testing purposes you can run it on a laptop with a webcam but that does not provide you with a virtual display.
+For testing purposes you can run it on a laptop with a webcam.
 
 ## Dependencies
 
