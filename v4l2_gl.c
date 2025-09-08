@@ -99,7 +99,12 @@ static bool glut_initialized = false;
 static bool fullscreen_mode = false; 
 static bool display_test_pattern = false;                
 static float g_plane_orbit_distance = 1.0f;         
-static float g_plane_scale = 1.0f;                  
+static float g_plane_scale = 1.0f;
+
+static int window_position_x = 0;
+static int window_position_y = 0;
+
+static int target_fps = 30;
 
 // --- Curved Display Configuration ---
 static bool g_curved_display = false;
@@ -640,16 +645,13 @@ void capture_and_update() {
 
 }
 
-#define TARGET_FPS 30 // This can still be used for display refresh rate
-
 // --- Capture Thread ---
 void *capture_thread_func(void *arg) {
     (void)arg; // Unused
     printf("V4L2_GL: Capture thread started.\n");
     struct timespec ts;
     ts.tv_sec = 0;
-    // Use the TARGET_FPS define here
-    ts.tv_nsec = (1000000000L / TARGET_FPS) / 2; // Sleep for a short duration if EAGAIN. Use long literal for 1 billion.
+    ts.tv_nsec = (1000000000L / target_fps) / 2; // Sleep for a short duration if EAGAIN. Use long literal for 1 billion.
 
     while (!stop_capture_thread_flag) {
         struct v4l2_buffer buf_check; // For checking DQBUF result
@@ -764,7 +766,7 @@ skip_xdg_frame_processing:; // Label for goto
         last_redisplay_time = current_time;
 
     glutPostRedisplay();
-    nanosleep(&(struct timespec){0, 1000000000L / TARGET_FPS}, NULL); // Sleep for FPS interval, this means the exact FPS will not be reached due to processing time
+    nanosleep(&(struct timespec){0, 1000000000L / target_fps}, NULL); // Sleep for FPS interval, this means the exact FPS will not be reached due to processing time
 
     //}
 }
@@ -815,6 +817,9 @@ int main(int argc, char **argv) {
     // --- Argument Parsing with kgflags ---
     kgflags_string("device", "/dev/video0", "V4L2 device path (e.g., /dev/video0).", false, &v4l2_device_path_str);
     kgflags_bool("fullscreen", false, "Enable fullscreen mode.", false, &fullscreen_mode);
+    kgflags_int("window-x", 0, "Set window X position.", false, &window_position_x);
+    kgflags_int("window-y", 0, "Set window Y position.", false, &window_position_y);
+    kgflags_int("fps", 30, "Set target frames per second (FPS).", false, &target_fps);
     kgflags_bool("viture", false, "Enable Viture IMU.", false, &use_viture_imu);
     kgflags_bool("test-pattern", false, "Display test pattern instead of V4L2.", false, &display_test_pattern);
     bool use_xdg_mode = false;
@@ -840,6 +845,11 @@ int main(int argc, char **argv) {
         kgflags_print_errors();
         kgflags_print_usage();
         return 1;
+    }
+
+    if (target_fps <= 0) {
+        fprintf(stderr, "Warning: Invalid FPS value (%d). Resetting to 30.\n", target_fps);
+        target_fps = 30;
     }
 
     g_plane_orbit_distance = (float)plane_distance_double;
@@ -905,7 +915,8 @@ if (use_viture_imu) {
 }
 
     glutInit(&argc, argv);
-    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH );
+    glutInitWindowPosition(window_position_x, window_position_y);
 
     if (fullscreen_mode) {
         printf("Mode: Fullscreen\n");
