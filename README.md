@@ -137,8 +137,24 @@ The application supports the following command-line options:
 
 -   **`--fullscreen`**:
     Runs the application in fullscreen mode.
+    Use the window-x flag to position the window on the correct display before it switches to fullscreen.
     Default: `false` (disabled).
     Example: `./v4l2_gl --fullscreen`
+
+-   **`--window-x <position>`**:
+    Sets the initial X position of the application window. `<position>` is an integer value.
+    Default: `0`.
+    Example: `./v4l2_gl --window-x 100`
+
+-   **`--window-y <position>`**:
+    Sets the initial Y position of the application window. `<position>` is an integer value.
+    Default: `0`.
+    Example: `./v4l2_gl --window-y 100`
+
+-   **`--fps <value>`**:
+    Sets the target frames per second (FPS). `<value>` is an integer.
+    Default: `30`.
+    Example: `./v4l2_gl --fps 60`
 
 -   **`--viture`**:
     Enables integration with Viture headset IMU for controlling the rotation of the displayed plane. The Viture SDK and device must be correctly set up.
