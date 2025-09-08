@@ -14,7 +14,7 @@ v4l2_gl displays a local screencast ( any Wayland compatible desktop ), a video 
 Connect the Viture glasses and configure it to extend your desktop ( don't set it to mirror the main display ).
 Launch the v4l2_gl on the new desktop that is shown in the glasses.
 
-When the screencast dialog popup appear select the main display as the source. This will show the main display in the v4l2_gl app window tracked to your head movements.
+When the screencast popup appears select the main display as the source. This will show the main display in the v4l2_gl app window tracked to your head movements.
 
 ### Orange Pi 5 Plus
 
@@ -71,7 +71,7 @@ make
 This will generate the executable **v4l2_gl**
 
 
-### Using the official Viture SDK
+### Using the official Viture SDK ( will be deprecated )
 ```
 make viture_sdk
 ```
@@ -172,7 +172,7 @@ The application supports the following command-line options:
 
 -   **`--curve-angle <angle>`**:
     Sets the total arc angle of the curved display in degrees. Only effective when `--curved-display` is enabled.
-    Default: `60.0`.
+    Default: `90.0`.
     Example: `./v4l2_gl --curved-display --curve-angle 90`
 
 -   **`--cursor-mode <mode>`**:
@@ -200,16 +200,17 @@ This command would:
 
 Using XDG Portal for screen capture:
 ```bash
-./v4l2_gl --xdg --viture --fullscreen
+./v4l2_gl --xdg --viture --fullscreen --cursor-mode 2
 ```
 This command would:
 - Use the XDG portal for screen capture (e.g., on Wayland).
 - Enable Viture IMU.
 - Run in fullscreen.
+- Show the embedded mouse cursor
 
 Using the curved display:
 ```bash
-./v4l2_gl --xdg --viture --curved-display --plane-distance 1.5 --curve-angle 80
+./v4l2_gl --xdg --viture --curved-display --plane-scale 1.5 --curve-angle 90
 ```
 This command would:
 - Use the XDG portal for screen capture.
