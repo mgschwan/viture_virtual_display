@@ -1,12 +1,20 @@
 # V4L2 Viture Virtual Display
 
-**Attention** this is **still in early development** and not fully functional yet. It will work but performance needs to be improved a lot. 
+**Attention** this is **still in early development** it will work but performance needs to be improved. 
 
-v4l2_gl captures an input video from a HDMI-in on an OrangePI 5 Plus using the hdmirx V4L2 device or a HDMI capture card or a local screenshare on Wayland, and displays it as a virtual screen in an OpenGL window. It supports the IMU from Viture Pro XR glasses for a 3DOF controlled screen.
+v4l2_gl displays a local screencast ( any Wayland compatible desktop ), a video input ( i.e. USB HDMI capture cards ) or captures an input video from a HDMI-in on an OrangePI 5 Plus using the hdmirx V4L2 device, on a virtual screen. It supports the IMU from Viture Pro XR glasses for a 3DOF controlled screen.
 
 ![Diagram of virtual display](https://github.com/mgschwan/viture_virtual_display/blob/main/assets/virtual_display.png?raw=true)
 
+
 ## Supported platforms
+
+### X86 based Wayland Desktops
+
+Connect the Viture glasses and configure it to extend your desktop ( don't set it to mirror the main display ).
+Launch the v4l2_gl on the new desktop that is shown in the glasses.
+
+When the screencast dialog popup appear select the main display as the source. This will show the main display in the v4l2_gl app window tracked to your head movements.
 
 ### Orange Pi 5 Plus
 
