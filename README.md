@@ -89,25 +89,35 @@ To run the application without root permissions, you need to set up a `udev` rul
     ```
     You will need to log out and log back in for this change to take effect.
 
-2.  **Create a `udev` rule file.**
-    Create a new file named `S99-viture.rules` in the `/etc/udev/rules.d/` directory:
+2.  **Install the `udev` rule.**
+    The application can automatically install the required udev rule for you. Run the following command with `sudo`:
     ```bash
-    sudo nano /etc/udev/rules.d/S99-viture.rules
+    sudo ./v4l2_gl --install-udev-rules
     ```
+    This will create the file `/etc/udev/rules.d/99-xr_virtual_display.rules` with the correct content. If the file already exists, it will not be modified.
 
-3.  **Add the `udev` rule.**
-    Add the following line to the newly created file:
-    ```
-    SUBSYSTEMS=="usb", ENV{DEVTYPE}=="usb_device", ATTRS{idVendor}=="35ca", ATTRS{idProduct}=="101d", MODE="0666", GROUP="plugdev"
-    ```
-
-4.  **Reload the `udev` rules.**
+3.  **Reload the `udev` rules.**
     For the changes to take effect, reload the `udev` rules with the following command:
     ```bash
     sudo udevadm control --reload-rules && sudo udevadm trigger
     ```
 
 After completing these steps, you should be able to run the application without `sudo`.
+
+### Manual udev rule installation
+If you prefer to install the rule manually, follow these steps:
+
+1.  **Create a `udev` rule file.**
+    Create a new file named `99-xr_virtual_display.rules` in the `/etc/udev/rules.d/` directory:
+    ```bash
+    sudo nano /etc/udev/rules.d/99-xr_virtual_display.rules
+    ```
+
+2.  **Add the `udev` rule.**
+    Add the following line to the newly created file:
+    ```
+    SUBSYSTEMS=="usb", ENV{DEVTYPE}=="usb_device", ATTRS{idVendor}=="35ca", ATTRS{idProduct}=="101d", MODE="0666", GROUP="plugdev"
+    ```
 
 
 ## Running the viewer
@@ -129,6 +139,10 @@ Quickly shake your head left/right 3 times to reset the rotation to the center p
 ### Command-Line Options
 
 The application supports the following command-line options:
+
+-   **`--install-udev-rules`**:
+    Installs the necessary udev rule to run the application without root permissions.
+    Example: `sudo ./v4l2_gl --install-udev-rules`
 
 -   **`--device <path>`**:
     Specifies the V4L2 device path (e.g., /dev/video0). Not used if `--xdg` is enabled.

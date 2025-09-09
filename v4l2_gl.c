@@ -28,6 +28,7 @@
 
 #include "utility.h"
 #include "xdg_source.h" // For XDG screen capture
+#include "system_utils.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -815,6 +816,8 @@ void init_gl() {
 
 int main(int argc, char **argv) {
     // --- Argument Parsing with kgflags ---
+    bool install_udev_rules_flag = false;
+    kgflags_bool("install-udev-rules", false, "Install udev rules and exit.", false, &install_udev_rules_flag);
     kgflags_string("device", "/dev/video0", "V4L2 device path (e.g., /dev/video0).", false, &v4l2_device_path_str);
     kgflags_bool("fullscreen", false, "Enable fullscreen mode.", false, &fullscreen_mode);
     kgflags_int("window-x", 0, "Set window X position.", false, &window_position_x);
@@ -845,6 +848,11 @@ int main(int argc, char **argv) {
         kgflags_print_errors();
         kgflags_print_usage();
         return 1;
+    }
+
+    if (install_udev_rules_flag) {
+        install_udev_rules();
+        return 0;
     }
 
     if (target_fps <= 0) {

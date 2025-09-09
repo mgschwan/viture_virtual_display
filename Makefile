@@ -10,7 +10,7 @@ TARGET = v4l2_gl
 TARGET_VITURE_SDK = v4l2_gl_viture_sdk
 
 # Source files (add more .c files here if your project grows)
-SRCS = v4l2_gl.c viture_connection.c utility.c xdg_source.c
+SRCS = v4l2_gl.c viture_connection.c utility.c xdg_source.c system_utils.c
 
 # Object files (automatically generated from SRCS)
 OBJS = $(SRCS:.c=.o)
