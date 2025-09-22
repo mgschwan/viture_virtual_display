@@ -50,6 +50,15 @@ struct PipeWireStreamData {
     pthread_t pipewire_thread;
     
     XDGFrameRequest *parent_request;
+
+    // Stored cursor data for flicker-free rendering
+    int cursor_x;
+    int cursor_y;
+    int cursor_w;
+    int cursor_h;
+    unsigned char *cursor_data;
+    int cursor_stride;
+    gboolean has_cursor;
 };
 
 // Define a structure to hold the frame data and sync primitives
@@ -163,47 +172,73 @@ static void on_stream_process(void *userdata)
     }
 #endif
 
-    if ((mcs = spa_buffer_find_meta_data(buf, SPA_META_Cursor, sizeof(*mcs))) ) {
-        if ( spa_meta_cursor_is_valid(mcs) )
-        {
-            int cursor_w;
-            int cursor_h;
-            int cursor_x = mcs->position.x;
-            int cursor_y = mcs->position.y;
+    // Check for new cursor metadata and update our stored cursor
+    if ((mcs = spa_buffer_find_meta_data(buf, SPA_META_Cursor, sizeof(*mcs))) && spa_meta_cursor_is_valid(mcs)) {
+        mb_cursor = SPA_PTROFF(mcs, mcs->bitmap_offset, struct spa_meta_bitmap);
 
-            mb_cursor = SPA_PTROFF(mcs, mcs->bitmap_offset, struct spa_meta_bitmap);
-            cursor_w = mb_cursor->size.width;
-            cursor_h = mb_cursor->size.height;
+        pw_data->cursor_x = mcs->position.x;
+        pw_data->cursor_y = mcs->position.y;
 
-            // copy the cursor bitmap into the texture with alpha blending
+        // If cursor dimensions or stride change, reallocate buffer
+        if (pw_data->cursor_w != mb_cursor->size.width || 
+            pw_data->cursor_h != mb_cursor->size.height ||
+            pw_data->cursor_stride != mb_cursor->stride) {
+            
+            g_free(pw_data->cursor_data);
+            pw_data->cursor_w = mb_cursor->size.width;
+            pw_data->cursor_h = mb_cursor->size.height;
+            pw_data->cursor_stride = mb_cursor->stride;
+            size_t cursor_size = (size_t)pw_data->cursor_h * pw_data->cursor_stride;
+            if (cursor_size > 0) {
+                pw_data->cursor_data = g_malloc(cursor_size);
+            } else {
+                pw_data->cursor_data = NULL;
+            }
+        }
+
+        if (pw_data->cursor_data) {
             uint8_t *cursor_src = SPA_PTROFF(mb_cursor, mb_cursor->offset, uint8_t);
-            int cursor_stride = mb_cursor->stride;
+            size_t cursor_size = (size_t)pw_data->cursor_h * pw_data->cursor_stride;
+            memcpy(pw_data->cursor_data, cursor_src, cursor_size);
+            pw_data->has_cursor = TRUE;
+        } else {
+            pw_data->has_cursor = FALSE;
+        }
+    }
 
-            // Clamp cursor position to be within frame boundaries
-            if (cursor_x < 0) cursor_x = 0;
-            if (cursor_y < 0) cursor_y = 0;
-            if (cursor_x + cursor_w > pw_data->frame_width) cursor_w = pw_data->frame_width - cursor_x;
-            if (cursor_y + cursor_h > pw_data->frame_height) cursor_h = pw_data->frame_height - cursor_y;
+    // Apply the stored cursor to the frame
+    if (pw_data->has_cursor && pw_data->cursor_data) {
+        int cursor_w = pw_data->cursor_w;
+        int cursor_h = pw_data->cursor_h;
+        int cursor_x = pw_data->cursor_x;
+        int cursor_y = pw_data->cursor_y;
 
-            uint8_t *frame_dst_start = pw_data->frame_data + (cursor_y * pw_data->frame_width * 3) + (cursor_x * 3);
-            int frame_stride = pw_data->frame_width * 3;
+        // Clamp cursor position to be within frame boundaries
+        if (cursor_x < 0) cursor_x = 0;
+        if (cursor_y < 0) cursor_y = 0;
+        if (cursor_x + cursor_w > pw_data->frame_width) cursor_w = pw_data->frame_width - cursor_x;
+        if (cursor_y + cursor_h > pw_data->frame_height) cursor_h = pw_data->frame_height - cursor_y;
 
-            for (int i = 0; i < cursor_h; i++) {
-                for (int j = 0; j < cursor_w; j++) {
-                    uint8_t *s = cursor_src + i * cursor_stride + j * 4; // BGRA
-                    uint8_t *d = frame_dst_start + i * frame_stride + j * 3; // RGB
+        uint8_t *cursor_src = pw_data->cursor_data;
+        int cursor_stride = pw_data->cursor_stride;
+        uint8_t *frame_dst_start = pw_data->frame_data + (cursor_y * pw_data->frame_width * 3) + (cursor_x * 3);
+        int frame_stride = pw_data->frame_width * 3;
 
-                    float alpha = s[3] / 255.0f;
-                    if (alpha > 0.01) { // Only blend if not fully transparent
-                        //g_print("Blending pixel at %d,%d with alpha %f\n", j, i, alpha);
-                        d[0] = (uint8_t)(s[2] * alpha + d[0] * (1.0f - alpha)); // R
-                        d[1] = (uint8_t)(s[1] * alpha + d[1] * (1.0f - alpha)); // G
-                        d[2] = (uint8_t)(s[0] * alpha + d[2] * (1.0f - alpha)); // B
-                    }
+        for (int i = 0; i < cursor_h; i++) {
+            for (int j = 0; j < cursor_w; j++) {
+                uint8_t *s = cursor_src + i * cursor_stride + j * 4; // BGRA
+                uint8_t *d = frame_dst_start + i * frame_stride + j * 3; // RGB
+
+                float alpha = s[3] / 255.0f;
+                if (alpha > 0.01) { // Only blend if not fully transparent
+                    //We make the cursor green to be distinguishable from the system cursor
+                    d[0] = 0; //(uint8_t)(s[2] * alpha + d[0] * (1.0f - alpha));        // R
+                    d[1] = (uint8_t)(s[1] * alpha + d[1] * (1.0f - alpha)); // G
+                    d[2] = 0; // (uint8_t)(s[0] * alpha + d[2] * (1.0f - alpha)); // B
                 }
             }
-        } 
-    } 
+        }
+    }
     pw_data->frame_ready = TRUE;
     pw_data->parent_request->success = TRUE;
     pw_data->parent_request->stream_started = TRUE;
@@ -1199,6 +1234,7 @@ void cleanup_screencast_session() {
             
             g_mutex_clear(&pw_data->frame_mutex);
             g_free(pw_data->frame_data);
+            g_free(pw_data->cursor_data);
             g_free(pw_data);
         }
         
