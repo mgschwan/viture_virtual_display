@@ -1,6 +1,6 @@
 # V4L2 Viture Virtual Display
 
-**Attention** this is **still in early development** it will work but performance needs to be improved. 
+**Attention** this is **still in early development** it will work but performance needs to be improved.
 
 v4l2_gl displays a local screencast ( any Wayland compatible desktop ), a video input ( i.e. USB HDMI capture cards ) or captures an input video from a HDMI-in on an OrangePI 5 Plus using the hdmirx V4L2 device, on a virtual screen. It supports the IMU from Viture Pro XR glasses for a 3DOF controlled screen.
 
@@ -33,7 +33,7 @@ For testing purposes you can run it on a laptop with a webcam.
 
 ## Dependencies
 
-This requires a linux based OS and installed gcc and build tools.
+This requires a linux based OS and installed gcc, g++ and build tools.
 
 To compile and run this application, ensure the following libraries are installed:
 
@@ -49,29 +49,36 @@ To compile and run this application, ensure the following libraries are installe
     sudo apt install libv4l-dev
     ```
 
--   **libhidapi-dev** (optional): If your are using the revers engineered protocol instead of the official Viture SDK
+-   **libhidapi-dev** (required for the reverse engineered protocol build):
     ```
     sudo apt install libhidapi-dev
     ```
 
--   **libglib2.0-dev** and **libpipewire-0.3-dev** (optional): Required for the `--xdg` portal screen capture feature on Wayland.
+-   **libglib2.0-dev** and **libpipewire-0.3-dev**: Required for the `--xdg` portal screen capture feature on Wayland.
     ```
     sudo apt install libglib2.0-dev libpipewire-0.3-dev
     ```
 
+-   **Viture SDK libraries** (required for the official SDK build only):
+    The official Viture SDK shared libraries cannot be bundled in this repository.
+    See [3rdparty/README.md](3rdparty/README.md) for download and setup instructions.
+
 
 ## Compilation
 
-Depending on the architecture you are running it on use the reverse engineered protocol version ( ARM ) or the official Viture SDK version ( X86 )
+There are two build targets depending on how you want to interface with the Viture glasses IMU.
 
-### Using the reverse engineered protocol
+### Using the reverse engineered protocol (recommended for ARM / no SDK required)
 ```
 make
 ```
 This will generate the executable **v4l2_gl**
 
+### Using the official Viture SDK (x86_64 and aarch64)
 
-### Using the official Viture SDK ( will be deprecated )
+Requires the Viture SDK libraries to be set up under `3rdparty/release/` first.
+See [3rdparty/README.md](3rdparty/README.md) for instructions.
+
 ```
 make viture_sdk
 ```
@@ -122,14 +129,23 @@ If you prefer to install the rule manually, follow these steps:
 
 ## Running the viewer
 
-Execute the compiled application from your terminal:
-```
+### Reverse engineered protocol build
+
+```bash
 ./v4l2_gl [options]
 ```
-or
+
+### Official SDK build
+
+Use the provided launcher script, which sets up the library search path for the
+bundled Viture SDK and OpenCV shared libraries:
+
+```bash
+./run_viture_sdk.sh [options]
 ```
-./v4l2_gl_viture_sdk [options]
-```
+
+> **Note:** Do not run `v4l2_gl_viture_sdk` directly — the bundled shared
+> libraries will not be found without the launcher setting `LD_LIBRARY_PATH`.
 
 ### Recenter view / rotation reset
 

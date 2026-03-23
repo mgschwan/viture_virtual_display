@@ -3,6 +3,10 @@
 
 #include <glib.h> // For gboolean
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Define the structure that holds the frame data.
 // This is the same structure defined in xdg_source.c.
 // If it were more complex or private, xdg_source.c might expose an opaque pointer.
@@ -61,5 +65,9 @@ void free_xdg_frame_request(XDGFrameRequest* frame_req);
  */
 void cleanup_screencast_session(void);
 XDGFrameRequest* init_screencast_session(int cursor_mode);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // XDG_SOURCE_H

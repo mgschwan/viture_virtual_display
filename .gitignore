@@ -2,7 +2,7 @@ v4l2_gl
 v4l2_gl_viture_sdk
 test_viture
 
-
+3rdparty/release
 # Prerequisites
 *.d
 

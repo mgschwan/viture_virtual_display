@@ -21,7 +21,11 @@
 #include <GL/freeglut.h> 
 
 #ifdef USE_VITURE
-#include "3rdparty/include/viture.h"
+#include <libusb-1.0/libusb.h>
+#include "viture_glasses_provider.h"
+#include "viture_device.h"
+#include "viture_protocol_public.h"
+#include "viture_version.h"
 #else
 #include "viture_connection.h" // Include our own Viture connection header
 #endif
@@ -128,7 +132,39 @@ static bool initial_offsets_set = false;
 static float average_yaw = 0.0f; // Used for head gesture tracking
 static int skip_initial_imu_frames = 20;
 
+#ifdef USE_VITURE
+static XRDeviceProviderHandle g_viture_handle = nullptr;
 
+static void track_reset_head_gesture(float roll, float pitch, float yaw, uint32_t ts);
+
+static void viture_sdk_pose_handler(float* data, uint64_t timestamp) {
+    if (!use_viture_imu) return;
+    uint32_t ts = (uint32_t)(timestamp / 1000000ULL);
+    if (!initial_offsets_set) {
+        if (skip_initial_imu_frames > 0) {
+            skip_initial_imu_frames--;
+            return;
+        }
+        initial_roll_offset  = data[0];
+        initial_pitch_offset = data[1];
+        initial_yaw_offset   = -data[2];
+        initial_offsets_set  = true;
+        printf("V4L2_GL Viture: Initial offsets: Roll=%f Pitch=%f Yaw=%f\n",
+               initial_roll_offset, initial_pitch_offset, initial_yaw_offset);
+    }
+    viture_roll  = data[0];
+    viture_pitch = data[1];
+    viture_yaw   = -data[2];
+    track_reset_head_gesture(viture_roll, viture_pitch, viture_yaw, ts);
+}
+
+static void viture_sdk_state_handler(int glass_state_id, int glass_value) {
+    printf("V4L2_GL Glass State: ID=%d, Value=%d\n", glass_state_id, glass_value);
+}
+#endif
+
+
+#ifndef USE_VITURE
 static float makeFloat(uint8_t *data) {
     float value = 0;
     uint8_t tem[4];
@@ -139,6 +175,7 @@ static float makeFloat(uint8_t *data) {
     memcpy(&value, tem, 4);
     return value;
 }
+#endif // !USE_VITURE
 
 /* Calculates the rolling average of the yaw angle 
    if the user shakes their head quickly 3 times the yaw angle will be reset to have the screen back in front of them.
@@ -228,6 +265,7 @@ static void track_reset_head_gesture(float roll, float pitch, float yaw, uint32_
 }
 
 
+#ifndef USE_VITURE
 static void app_viture_imu_data_handler(uint8_t *data, uint16_t len, uint32_t ts) {
     (void)ts; 
     if (len < 12) return;
@@ -255,13 +293,14 @@ static void app_viture_imu_data_handler(uint8_t *data, uint16_t len, uint32_t ts
 
 static void app_viture_mcu_event_handler(uint16_t msgid, uint8_t *data, uint16_t len, uint32_t ts)
 {
-    (void)ts; 
+    (void)ts;
     printf("V4L2_GL MCU Event: ID=0x%04X, Len=%u, Data: ", msgid, len);
     for (uint16_t i = 0; i < len; i++) {
         printf("%02X ", data[i]);
     }
     printf("\n");
 }
+#endif // !USE_VITURE
 
 
 
@@ -359,7 +398,7 @@ void init_v4l2() {
     n_buffers = req.count;
     printf("V4L2: %d buffers requested.\n", n_buffers);
 
-    buffers_mp = calloc(n_buffers, sizeof(*buffers_mp)); 
+    buffers_mp = (struct mplane_buffer *)calloc(n_buffers, sizeof(*buffers_mp));
     for (unsigned int i = 0; i < n_buffers; ++i) {
         struct v4l2_buffer buf;
         memset(&buf, 0, sizeof(buf));
@@ -426,11 +465,16 @@ void cleanup() {
         printf("Viture: Disabling IMU and de-initializing...\n");
 
 #ifdef USE_VITURE
-        set_imu(false); 
-        deinit();       
+        if (g_viture_handle) {
+            xr_device_provider_close_imu(g_viture_handle, VITURE_IMU_MODE_POSE);
+            xr_device_provider_stop(g_viture_handle);
+            xr_device_provider_shutdown(g_viture_handle);
+            xr_device_provider_destroy(g_viture_handle);
+            g_viture_handle = nullptr;
+        }
 #else
-        set_imu(false); 
-        viture_driver_close(); 
+        set_imu(false);
+        viture_driver_close();
 #endif
     }
 
@@ -728,8 +772,8 @@ void idle()
                         printf("V4L2_GL: Reallocating RGB buffers to %zu bytes for %dx%d\n", new_size, actual_frame_width, actual_frame_height);
                         free(rgb_frames[0]);
                         free(rgb_frames[1]);
-                        rgb_frames[0] = malloc(new_size);
-                        rgb_frames[1] = malloc(new_size);
+                        rgb_frames[0] = (unsigned char *)malloc(new_size);
+                        rgb_frames[1] = (unsigned char *)malloc(new_size);
                         if (!rgb_frames[0] || !rgb_frames[1]) {
                             fprintf(stderr, "FATAL: Failed to reallocate RGB frames for XDG mode!\n");
                             // Consider how to handle this - maybe exit or stop trying XDG.
@@ -767,7 +811,8 @@ skip_xdg_frame_processing:; // Label for goto
         last_redisplay_time = current_time;
 
     glutPostRedisplay();
-    nanosleep(&(struct timespec){0, 1000000000L / target_fps}, NULL); // Sleep for FPS interval, this means the exact FPS will not be reached due to processing time
+    struct timespec fps_sleep = {0, 1000000000L / target_fps};
+    nanosleep(&fps_sleep, NULL); // Sleep for FPS interval, this means the exact FPS will not be reached due to processing time
 
     //}
 }
@@ -787,8 +832,8 @@ void init_gl() {
         current_rgb_buffer_size = 3;
     }
 
-    rgb_frames[0] = malloc(current_rgb_buffer_size);
-    rgb_frames[1] = malloc(current_rgb_buffer_size);
+    rgb_frames[0] = (unsigned char *)malloc(current_rgb_buffer_size);
+    rgb_frames[1] = (unsigned char *)malloc(current_rgb_buffer_size);
 
     if (!rgb_frames[0] || !rgb_frames[1]) {
         fprintf(stderr, "Failed to allocate memory for RGB frames (%dx%d)\n", actual_frame_width, actual_frame_height);
@@ -898,10 +943,42 @@ int main(int argc, char **argv) {
 
 if (use_viture_imu) {
 #ifdef USE_VITURE
-    printf("Viture: Initializing with official SDK...\n");
-    init(app_viture_imu_data_handler, app_viture_mcu_event_handler); 
-    set_imu(true); 
-    printf("Viture: IMU stream enabled via official SDK.\n");
+    printf("Viture: Initializing with official SDK (v" VITURE_VERSION_STRING ")...\n");
+    {
+        libusb_context *usb_ctx = nullptr;
+        libusb_device **usb_devs = nullptr;
+        int usb_product_id = -1;
+        if (libusb_init(&usb_ctx) == 0) {
+            ssize_t usb_count = libusb_get_device_list(usb_ctx, &usb_devs);
+            for (ssize_t i = 0; i < usb_count && usb_product_id < 0; i++) {
+                struct libusb_device_descriptor desc;
+                if (libusb_get_device_descriptor(usb_devs[i], &desc) == 0 &&
+                    desc.idVendor == 0x35CA &&
+                    xr_device_provider_is_product_id_valid((int)desc.idProduct)) {
+                    usb_product_id = (int)desc.idProduct;
+                }
+            }
+            libusb_free_device_list(usb_devs, 1);
+            libusb_exit(usb_ctx);
+        }
+        if (usb_product_id < 0) {
+            fprintf(stderr, "V4L2_GL: No Viture device found.\n");
+            use_viture_imu = false;
+        } else {
+            g_viture_handle = xr_device_provider_create(usb_product_id);
+            if (g_viture_handle) {
+                xr_device_provider_register_state_callback(g_viture_handle, viture_sdk_state_handler);
+                xr_device_provider_register_imu_pose_callback(g_viture_handle, viture_sdk_pose_handler);
+                xr_device_provider_initialize(g_viture_handle, nullptr, nullptr);
+                xr_device_provider_start(g_viture_handle);
+                xr_device_provider_open_imu(g_viture_handle, VITURE_IMU_MODE_POSE, VITURE_IMU_FREQUENCY_MEDIUM);
+                printf("Viture: SDK initialized, IMU enabled.\n");
+            } else {
+                fprintf(stderr, "V4L2_GL: Failed to create Viture device provider.\n");
+                use_viture_imu = false;
+            }
+        }
+    }
 #else
     printf("Viture: Initializing with custom driver...\n");
     if (!viture_driver_init()) { 
