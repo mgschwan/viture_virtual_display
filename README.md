@@ -2,7 +2,7 @@
 
 **Attention** this is **still in early development** it will work but performance needs to be improved.
 
-v4l2_gl displays a local screencast ( any Wayland compatible desktop ), a video input ( i.e. USB HDMI capture cards ) or captures an input video from a HDMI-in on an OrangePI 5 Plus using the hdmirx V4L2 device, on a virtual screen. It supports the IMU from Viture Pro XR glasses for a 3DOF controlled screen.
+v4l2_gl displays a local screencast ( any Wayland compatible desktop ), a video input ( i.e. USB HDMI capture cards ) or captures an input video from a HDMI-in on an OrangePI 5 Plus using the hdmirx V4L2 device, on a virtual screen. It supports the IMU from most current Viture glasses for a 3DOF controlled screen.
 
 ![Diagram of virtual display](https://github.com/mgschwan/viture_virtual_display/blob/main/assets/virtual_display.png?raw=true)
 
@@ -68,13 +68,13 @@ To compile and run this application, ensure the following libraries are installe
 
 There are two build targets depending on how you want to interface with the Viture glasses IMU.
 
-### Using the reverse engineered protocol (recommended for ARM / no SDK required)
+### Using the reverse engineered protocol for Viture Pro XR glasses ( no SDK required / but only supports Viture Pro XR )
 ```
 make
 ```
 This will generate the executable **v4l2_gl**
 
-### Using the official Viture SDK (x86_64 and aarch64)
+### Using the official Viture SDK (x86_64 and aarch64), supports all Viture glasses
 
 Requires the Viture SDK libraries to be set up under `3rdparty/release/` first.
 See [3rdparty/README.md](3rdparty/README.md) for instructions.
